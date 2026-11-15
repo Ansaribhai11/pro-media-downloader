@@ -12,7 +12,8 @@ TASKS = {}
 BASE_OPTS = {
     'quiet': True,
     'noplaylist': True,
-    'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}},
+    'socket_timeout': 15,
+    'extractor_args': {'youtube': {'player_client': ['tv_embedded', 'android', 'web']}},
     'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
 }
 
@@ -37,7 +38,7 @@ def index():
                 s_url = next((f.get("url", "") for f in reversed(d.get("formats", [])) if f.get("ext") == "mp4" and f.get("acodec") != "none" and f.get("vcodec") != "none"), "")
                 info = {"title": d.get("title", "Video"), "thumbnail": d.get("thumbnail", ""), "uploader": d.get("uploader", "Creator"), "duration": fmt_dur(d.get("duration")), "stream_url": s_url}
         except Exception as e:
-            error = str(e)
+            error = "YouTube ne server IP block kiya hai ya link invalid hai. Instagram/Facebook/X link ya doosra video try karein. (" + str(e)[:80] + ")"
     return render_template("index.html", url=url, info=info, error=error)
 
 @app.route("/download_thumb")
