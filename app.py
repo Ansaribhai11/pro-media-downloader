@@ -13,9 +13,7 @@ BASE_OPTS = {
     'quiet': True,
     'cookiefile': 'cookies.txt',
     'noplaylist': True,
-    'socket_timeout': 15,
-    'extractor_args': {'youtube': {'player_client': ['tv_embedded', 'android', 'web']}},
-    'http_headers': {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    'socket_timeout': 15
 }
 
 def fmt_dur(s):
