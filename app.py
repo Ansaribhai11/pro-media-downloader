@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_file
-import yt_dlp, imageio_ffmpeg, threading, time, uuid, urllib.request
+import yt_dlp, imageio_ffmpeg, threading, time, uuid, urllib.request, json, re
 from yt_dlp.utils import download_range_func
 from pathlib import Path
 from io import BytesIO
@@ -26,6 +26,18 @@ def parse_sec(t):
     if not t or not t.strip(): return None
     return sum(int(x) * (60 ** i) for i, x in enumerate(reversed(t.strip().split(":"))))
 
+def get_yt_fallback(url):
+    m = re.search(r'(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})', url)
+    if not m: return None
+    vid = m.group(1)
+    try:
+        req = urllib.request.Request(f"https://youtube.com{vid}&format=json", headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            meta = json.loads(r.read().decode())
+            return {"title": meta.get("title", "YouTube Video"), "thumbnail": f"https://ytimg.com{vid}/hqdefault.jpg", "uploader": meta.get("author_name", "YouTube Creator"), "duration": "HD Ready", "stream_url": ""}
+    except Exception:
+        return None
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     url, info, error = "", None, None
@@ -37,7 +49,9 @@ def index():
                 s_url = next((f.get("url", "") for f in reversed(d.get("formats", [])) if f.get("ext") == "mp4" and f.get("acodec") != "none" and f.get("vcodec") != "none"), "")
                 info = {"title": d.get("title", "Video"), "thumbnail": d.get("thumbnail", ""), "uploader": d.get("uploader", "Creator"), "duration": fmt_dur(d.get("duration")), "stream_url": s_url}
         except Exception as e:
-            error = str(e)
+            info = get_yt_fallback(url)
+            if not info:
+                error = str(e)
     return render_template("index.html", url=url, info=info, error=error)
 
 @app.route("/download_thumb")
@@ -50,7 +64,13 @@ def download_thumb():
         return str(e), 500
 
 def run_dl(tid, url, q, s_t, e_t):
-    fmts = {"1":"bv*[height<=1080]+ba/b[height<=1080]/b","2":"bv*[height<=720]+ba/b[height<=720]/b","3":"bv*[height<=480]+ba/b[height<=480]/b","4":"bv*[height<=360]+ba/b[height<=360]/b","5":"ba/b"}
+    fmts = {
+        "1": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "2": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "3": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
+        "4": "bestvideo[height<=360]+bestaudio/best[height<=360]/best",
+        "5": "bestaudio/best"
+    }
     def hook(d):
         if d['status'] == 'downloading':
             tot = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
@@ -60,7 +80,7 @@ def run_dl(tid, url, q, s_t, e_t):
             TASKS[tid].update({"percent": 95, "status": "Finalizing...", "speed": "Almost done"})
     opts = {
         **BASE_OPTS,
-        'format': fmts.get(q, "bv*[height<=720]+ba/b"),
+        'format': fmts.get(q, "best"),
         'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(),
         'merge_output_format': 'mp4',
         'outtmpl': str(DOWNLOAD_FOLDER / f'%(title)s_{int(time.time())}.%(ext)s'),
