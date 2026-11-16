@@ -44,7 +44,7 @@ def index():
                 'socket_timeout': 30,
                 'geo_bypass': True,
                 'nocheckcertificate': True,
-                'extractor_args': {'youtube': {'player_client': ['ios', 'web']}}
+                'extractor_args': {'youtube': {'player_client': ['tv', 'web']}}
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 d = ydl.extract_info(url, download=False)
@@ -97,7 +97,7 @@ def run_dl(tid, url, q, s_t, e_t):
         'socket_timeout': 60,
         'geo_bypass': True,
         'nocheckcertificate': True,
-        'extractor_args': {'youtube': {'player_client': ['ios', 'web']}}
+        'extractor_args': {'youtube': {'player_client': ['tv', 'web']}}
     }
     s_sec, e_sec = parse_sec(s_t), parse_sec(e_t)
     if s_sec is not None or e_sec is not None:
