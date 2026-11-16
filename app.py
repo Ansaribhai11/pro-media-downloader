@@ -1,10 +1,9 @@
 from flask import Flask, render_template, request, jsonify, send_file
-import yt_dlp, imageio_ffmpeg, threading, time, uuid, urllib.request, socket
+import yt_dlp, imageio_ffmpeg, threading, time, uuid, urllib.request, socket, re
 from yt_dlp.utils import download_range_func
 from pathlib import Path
 from io import BytesIO
 
-# Set default socket timeout to prevent hanging/SSL drops
 socket.setdefaulttimeout(60)
 
 app = Flask(__name__)
@@ -13,6 +12,13 @@ DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 TASKS = {}
 
 COOKIE_FILE = "cookies.txt" if Path("cookies.txt").exists() else None
+print(f"--> Cookie file status: {'Found (' + COOKIE_FILE + ')' if COOKIE_FILE else 'NOT FOUND'}")
+
+def clean_url(url):
+    # Remove playlist or extra garbage parameters to prevent extraction errors
+    if not url: return ""
+    url = url.split("&list=")[0].split("&si=")[0]
+    return url.strip()
 
 def fmt_dur(s):
     if not s: return "Short/Live"
@@ -34,13 +40,14 @@ def parse_sec(t_str):
 def index():
     url, info, error = "", None, None
     if request.method == "POST":
-        url = request.form.get("url", "").strip()
+        raw_url = request.form.get("url", "").strip()
+        url = clean_url(raw_url)
         try:
             ydl_opts = {
                 'quiet': True, 
                 'noplaylist': True,
                 'socket_timeout': 30,
-                'extractor_args': {'youtube': {'player_client': ['android']}}
+                'extractor_args': {'youtube': {'player_client': ['mweb', 'android']}}
             }
             if COOKIE_FILE:
                 ydl_opts['cookiefile'] = COOKIE_FILE
@@ -70,6 +77,7 @@ def download_thumb():
         return str(e), 500
 
 def run_dl(tid, url, q, s_t, e_t):
+    clean_u = clean_url(url)
     fmts = {"1":"bv*[height<=1080]+ba/b[height<=1080]/b","2":"bv*[height<=720]+ba/b[height<=720]/b","3":"bv*[height<=480]+ba/b[height<=480]/b","4":"bv*[height<=360]+ba/b[height<=360]/b","5":"ba/b"}
     def hook(d):
         if d['status'] == 'downloading':
@@ -87,7 +95,7 @@ def run_dl(tid, url, q, s_t, e_t):
         'progress_hooks': [hook], 
         'noplaylist': True,
         'socket_timeout': 60,
-        'extractor_args': {'youtube': {'player_client': ['android']}}
+        'extractor_args': {'youtube': {'player_client': ['mweb', 'android']}}
     }
     if COOKIE_FILE:
         opts['cookiefile'] = COOKIE_FILE
@@ -98,7 +106,7 @@ def run_dl(tid, url, q, s_t, e_t):
         opts['force_keyframes_at_cuts'] = True
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            i = ydl.extract_info(url, download=True)
+            i = ydl.extract_info(clean_u, download=True)
             p = Path(ydl.prepare_filename(i))
             if q != "5" and p.with_suffix(".mp4").exists(): p = p.with_suffix(".mp4")
         TASKS[tid].update({"percent": 100, "status": "Sending...", "speed": "Done", "done": True, "filepath": str(p)})
