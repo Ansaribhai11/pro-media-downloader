@@ -1,26 +1,34 @@
 from flask import Flask, render_template, request, jsonify, send_file
-import yt_dlp, imageio_ffmpeg, threading, time, uuid, urllib.request
+import yt_dlp, imageio_ffmpeg, threading, time, uuid, urllib.request, socket
 from yt_dlp.utils import download_range_func
 from pathlib import Path
 from io import BytesIO
+
+# Set default socket timeout to prevent hanging/SSL drops
+socket.setdefaulttimeout(60)
 
 app = Flask(__name__)
 DOWNLOAD_FOLDER = Path("web_downloads").resolve()
 DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 TASKS = {}
 
-# Safe check for cookies file
 COOKIE_FILE = "cookies.txt" if Path("cookies.txt").exists() else None
 
 def fmt_dur(s):
     if not s: return "Short/Live"
-    m, s = divmod(int(s), 60)
-    h, m = divmod(m, 60)
-    return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+    try:
+        m, s = divmod(int(s), 60)
+        h, m = divmod(m, 60)
+        return f"{h}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+    except:
+        return "Short/Live"
 
 def parse_sec(t_str):
     if not t_str or not t_str.strip(): return None
-    return sum(int(x) * (60 ** i) for i, x in enumerate(reversed(t_str.strip().split(":"))))
+    try:
+        return sum(int(x) * (60 ** i) for i, x in enumerate(reversed(t_str.strip().split(":"))))
+    except:
+        return None
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -28,16 +36,27 @@ def index():
     if request.method == "POST":
         url = request.form.get("url", "").strip()
         try:
-            ydl_opts = {'quiet': True, 'noplaylist': True}
+            ydl_opts = {
+                'quiet': True, 
+                'noplaylist': True,
+                'socket_timeout': 30,
+                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+            }
             if COOKIE_FILE:
                 ydl_opts['cookiefile'] = COOKIE_FILE
                 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 d = ydl.extract_info(url, download=False)
                 s_url = next((f.get("url", "") for f in reversed(d.get("formats", [])) if f.get("ext") == "mp4" and f.get("acodec") != "none" and f.get("vcodec") != "none"), "")
-                info = {"title": d.get("title", "Video"), "thumbnail": d.get("thumbnail", ""), "uploader": d.get("uploader", "Creator"), "duration": fmt_dur(d.get("duration")), "stream_url": s_url}
+                info = {
+                    "title": d.get("title", "Video"), 
+                    "thumbnail": d.get("thumbnail", ""), 
+                    "uploader": d.get("uploader", "Creator"), 
+                    "duration": fmt_dur(d.get("duration")), 
+                    "stream_url": s_url
+                }
         except Exception as e:
-            error = str(e)
+            error = f"Failed to fetch link: {str(e)}"
     return render_template("index.html", url=url, info=info, error=error)
 
 @app.route("/download_thumb")
@@ -66,7 +85,9 @@ def run_dl(tid, url, q, s_t, e_t):
         'merge_output_format': 'mp4', 
         'outtmpl': str(DOWNLOAD_FOLDER / f'%(title)s_{int(time.time())}.%(ext)s'), 
         'progress_hooks': [hook], 
-        'noplaylist': True
+        'noplaylist': True,
+        'socket_timeout': 60,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
     }
     if COOKIE_FILE:
         opts['cookiefile'] = COOKIE_FILE
@@ -86,13 +107,18 @@ def run_dl(tid, url, q, s_t, e_t):
 
 @app.route("/start_download", methods=["POST"])
 def start_dl():
-    d = request.get_json(); tid = str(uuid.uuid4())
-    TASKS[tid] = {"percent": 0, "status": "Starting...", "speed": "--", "done": False, "filepath": "", "error": ""}
-    threading.Thread(target=run_dl, args=(tid, d["url"], d["quality"], d.get("start",""), d.get("end","")), daemon=True).start()
-    return jsonify({"task_id": tid})
+    try:
+        d = request.get_json()
+        tid = str(uuid.uuid4())
+        TASKS[tid] = {"percent": 0, "status": "Starting...", "speed": "--", "done": False, "filepath": "", "error": ""}
+        threading.Thread(target=run_dl, args=(tid, d["url"], d["quality"], d.get("start",""), d.get("end","")), daemon=True).start()
+        return jsonify({"task_id": tid})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/progress/<tid>")
-def prog(tid): return jsonify(TASKS.get(tid, {"done": True, "error": "Not found"}))
+def prog(tid): 
+    return jsonify(TASKS.get(tid, {"done": True, "error": "Not found"}))
 
 @app.route("/get_file/<tid>")
 def get_file(tid):
