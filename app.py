@@ -40,7 +40,7 @@ def index():
                 'quiet': True, 
                 'noplaylist': True,
                 'socket_timeout': 30,
-                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                'extractor_args': {'youtube': {'player_client': ['android']}}
             }
             if COOKIE_FILE:
                 ydl_opts['cookiefile'] = COOKIE_FILE
@@ -87,7 +87,7 @@ def run_dl(tid, url, q, s_t, e_t):
         'progress_hooks': [hook], 
         'noplaylist': True,
         'socket_timeout': 60,
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+        'extractor_args': {'youtube': {'player_client': ['android']}}
     }
     if COOKIE_FILE:
         opts['cookiefile'] = COOKIE_FILE
