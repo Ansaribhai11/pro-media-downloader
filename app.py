@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_file
-import yt_dlp, imageio_ffmpeg, threading, time, uuid, urllib.request, socket, re
+import yt_dlp, imageio_ffmpeg, threading, time, uuid, urllib.request, socket
 from yt_dlp.utils import download_range_func
 from pathlib import Path
 from io import BytesIO
@@ -11,14 +11,9 @@ DOWNLOAD_FOLDER = Path("web_downloads").resolve()
 DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 TASKS = {}
 
-COOKIE_FILE = "cookies.txt" if Path("cookies.txt").exists() else None
-print(f"--> Cookie file status: {'Found (' + COOKIE_FILE + ')' if COOKIE_FILE else 'NOT FOUND'}")
-
 def clean_url(url):
-    # Remove playlist or extra garbage parameters to prevent extraction errors
     if not url: return ""
-    url = url.split("&list=")[0].split("&si=")[0]
-    return url.strip()
+    return url.split("&list=")[0].split("&si=")[0].strip()
 
 def fmt_dur(s):
     if not s: return "Short/Live"
@@ -44,22 +39,21 @@ def index():
         url = clean_url(raw_url)
         try:
             ydl_opts = {
-                'quiet': True, 
+                'quiet': True,
                 'noplaylist': True,
                 'socket_timeout': 30,
-                'extractor_args': {'youtube': {'player_client': ['mweb', 'android']}}
+                'geo_bypass': True,
+                'nocheckcertificate': True,
+                'extractor_args': {'youtube': {'player_client': ['ios', 'web']}}
             }
-            if COOKIE_FILE:
-                ydl_opts['cookiefile'] = COOKIE_FILE
-                
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 d = ydl.extract_info(url, download=False)
                 s_url = next((f.get("url", "") for f in reversed(d.get("formats", [])) if f.get("ext") == "mp4" and f.get("acodec") != "none" and f.get("vcodec") != "none"), "")
                 info = {
-                    "title": d.get("title", "Video"), 
-                    "thumbnail": d.get("thumbnail", ""), 
-                    "uploader": d.get("uploader", "Creator"), 
-                    "duration": fmt_dur(d.get("duration")), 
+                    "title": d.get("title", "Video"),
+                    "thumbnail": d.get("thumbnail", ""),
+                    "uploader": d.get("uploader", "Creator"),
+                    "duration": fmt_dur(d.get("duration")),
                     "stream_url": s_url
                 }
         except Exception as e:
@@ -78,7 +72,13 @@ def download_thumb():
 
 def run_dl(tid, url, q, s_t, e_t):
     clean_u = clean_url(url)
-    fmts = {"1":"bv*[height<=1080]+ba/b[height<=1080]/b","2":"bv*[height<=720]+ba/b[height<=720]/b","3":"bv*[height<=480]+ba/b[height<=480]/b","4":"bv*[height<=360]+ba/b[height<=360]/b","5":"ba/b"}
+    fmts = {
+        "1": "bv*[height<=1080]+ba/b[height<=1080]/b",
+        "2": "bv*[height<=720]+ba/b[height<=720]/b",
+        "3": "bv*[height<=480]+ba/b[height<=480]/b",
+        "4": "bv*[height<=360]+ba/b[height<=360]/b",
+        "5": "ba/b"
+    }
     def hook(d):
         if d['status'] == 'downloading':
             tot = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
@@ -86,20 +86,19 @@ def run_dl(tid, url, q, s_t, e_t):
             TASKS[tid].update({"percent": pct, "status": "Downloading...", "speed": d.get('_speed_str', '--').strip()})
         elif d['status'] == 'finished':
             TASKS[tid].update({"percent": 95, "status": "Finalizing...", "speed": "Almost done"})
-            
+
     opts = {
-        'format': fmts.get(q, "bv*[height<=720]+ba/b"), 
-        'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(), 
-        'merge_output_format': 'mp4', 
-        'outtmpl': str(DOWNLOAD_FOLDER / f'%(title)s_{int(time.time())}.%(ext)s'), 
-        'progress_hooks': [hook], 
+        'format': fmts.get(q, "bv*[height<=720]+ba/b"),
+        'ffmpeg_location': imageio_ffmpeg.get_ffmpeg_exe(),
+        'merge_output_format': 'mp4',
+        'outtmpl': str(DOWNLOAD_FOLDER / f'%(title)s_{int(time.time())}.%(ext)s'),
+        'progress_hooks': [hook],
         'noplaylist': True,
         'socket_timeout': 60,
-        'extractor_args': {'youtube': {'player_client': ['mweb', 'android']}}
+        'geo_bypass': True,
+        'nocheckcertificate': True,
+        'extractor_args': {'youtube': {'player_client': ['ios', 'web']}}
     }
-    if COOKIE_FILE:
-        opts['cookiefile'] = COOKIE_FILE
-        
     s_sec, e_sec = parse_sec(s_t), parse_sec(e_t)
     if s_sec is not None or e_sec is not None:
         opts['download_ranges'] = download_range_func(None, [(s_sec or 0, e_sec or 999999)])
@@ -108,7 +107,8 @@ def run_dl(tid, url, q, s_t, e_t):
         with yt_dlp.YoutubeDL(opts) as ydl:
             i = ydl.extract_info(clean_u, download=True)
             p = Path(ydl.prepare_filename(i))
-            if q != "5" and p.with_suffix(".mp4").exists(): p = p.with_suffix(".mp4")
+            if q != "5" and p.with_suffix(".mp4").exists():
+                p = p.with_suffix(".mp4")
         TASKS[tid].update({"percent": 100, "status": "Sending...", "speed": "Done", "done": True, "filepath": str(p)})
     except Exception as e:
         TASKS[tid].update({"done": True, "error": str(e), "status": "Failed"})
@@ -125,7 +125,7 @@ def start_dl():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/progress/<tid>")
-def prog(tid): 
+def prog(tid):
     return jsonify(TASKS.get(tid, {"done": True, "error": "Not found"}))
 
 @app.route("/get_file/<tid>")
