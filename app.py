@@ -9,6 +9,9 @@ DOWNLOAD_FOLDER = Path("web_downloads").resolve()
 DOWNLOAD_FOLDER.mkdir(exist_ok=True)
 TASKS = {}
 
+# Safe check for cookies file
+COOKIE_FILE = "cookies.txt" if Path("cookies.txt").exists() else None
+
 def fmt_dur(s):
     if not s: return "Short/Live"
     m, s = divmod(int(s), 60)
@@ -25,7 +28,11 @@ def index():
     if request.method == "POST":
         url = request.form.get("url", "").strip()
         try:
-            with yt_dlp.YoutubeDL({'quiet': True, 'noplaylist': True, 'cookiefile': 'cookies.txt'}) as ydl:
+            ydl_opts = {'quiet': True, 'noplaylist': True}
+            if COOKIE_FILE:
+                ydl_opts['cookiefile'] = COOKIE_FILE
+                
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 d = ydl.extract_info(url, download=False)
                 s_url = next((f.get("url", "") for f in reversed(d.get("formats", [])) if f.get("ext") == "mp4" and f.get("acodec") != "none" and f.get("vcodec") != "none"), "")
                 info = {"title": d.get("title", "Video"), "thumbnail": d.get("thumbnail", ""), "uploader": d.get("uploader", "Creator"), "duration": fmt_dur(d.get("duration")), "stream_url": s_url}
@@ -59,9 +66,11 @@ def run_dl(tid, url, q, s_t, e_t):
         'merge_output_format': 'mp4', 
         'outtmpl': str(DOWNLOAD_FOLDER / f'%(title)s_{int(time.time())}.%(ext)s'), 
         'progress_hooks': [hook], 
-        'noplaylist': True,
-        'cookiefile': 'cookies.txt'
+        'noplaylist': True
     }
+    if COOKIE_FILE:
+        opts['cookiefile'] = COOKIE_FILE
+        
     s_sec, e_sec = parse_sec(s_t), parse_sec(e_t)
     if s_sec is not None or e_sec is not None:
         opts['download_ranges'] = download_range_func(None, [(s_sec or 0, e_sec or 999999)])
